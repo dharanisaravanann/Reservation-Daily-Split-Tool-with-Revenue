@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
+
 # --- Debug: show exactly which file Streamlit is running ---
 st.write("RUNNING FILE:", os.path.abspath(__file__))
 
@@ -10,18 +11,19 @@ st.write("RUNNING FILE:", os.path.abspath(__file__))
 def split_reservations(df: pd.DataFrame) -> pd.DataFrame:
     """
     1 row per night.
-    Splits all revenue/fee columns evenly across nights by dividing by total nights.
+    Splits revenue/fee columns evenly across nights by dividing by total nights.
+    Date + Booking Date are converted to Excel serial date values (DATEVALUE style).
     """
     df = df.copy()
     df.columns = df.columns.str.strip()
 
-    # Required columns check (so it doesn't silently fail)
+    # Required columns check
     required = ["Reservation Number", "Arrival", "Departure", "Booking Date"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
-    # Convert date columns (these become real datetime dtype)
+    # Convert date columns to datetime
     df["Arrival"] = pd.to_datetime(df["Arrival"], dayfirst=True, errors="coerce")
     df["Departure"] = pd.to_datetime(df["Departure"], dayfirst=True, errors="coerce")
     df["Booking Date"] = pd.to_datetime(df["Booking Date"], dayfirst=True, errors="coerce")
@@ -34,16 +36,31 @@ def split_reservations(df: pd.DataFrame) -> pd.DataFrame:
         for start, end in zip(df["Arrival"], df["Departure"])
     ]
 
-    # Explode
+    # Explode to one row per night
     df_daily = df.explode("Stay_dates").reset_index(drop=True)
     df_daily = df_daily[df_daily["Stay_dates"].notna()].copy()
 
-    # Make Stay Date column (keep as datetime!)
-    df_daily["Stay Date"] = pd.to_datetime(df_daily["Stay_dates"], errors="coerce")
+    # Excel DATEVALUE epoch
+    EXCEL_EPOCH = pd.Timestamp("1899-12-30")
+
+    # Create Date (stay date) as Excel serial number
+    df_daily["DateValue"] = (
+        pd.to_datetime(df_daily["Stay_dates"], errors="coerce") - EXCEL_EPOCH
+    ).dt.days
+
+    # Rename DateValue -> Date (as you want)
+    df_daily = df_daily.rename(columns={"DateValue": "Date"})
+
+    # Booking Date as Excel serial number too
+    df_daily["Booking Date"] = (
+        pd.to_datetime(df_daily["Booking Date"], errors="coerce") - EXCEL_EPOCH
+    ).dt.days
+
+    # Drop helper column
     df_daily.drop(columns=["Stay_dates"], inplace=True)
 
-    # Total nights per reservation
-    total_nights = df_daily.groupby("Reservation Number")["Stay Date"].transform("size")
+    # Total nights per reservation (count of nightly rows)
+    total_nights = df_daily.groupby("Reservation Number")["Date"].transform("size")
 
     # Each row is one night
     df_daily["Nights"] = 1
@@ -83,26 +100,23 @@ def split_reservations(df: pd.DataFrame) -> pd.DataFrame:
     }
     df_daily = df_daily.rename(columns=rename_map)
 
-    # Rename Channel -> Sub Channel
+    # Rename Channel -> Sub Channel if exists
     if "Channel" in df_daily.columns:
         df_daily = df_daily.rename(columns={"Channel": "Sub Channel"})
 
-    # Drop Arrival/Departure in daily output (optional)
+    # Drop Arrival/Departure (optional)
     for col in ["Arrival", "Departure"]:
         if col in df_daily.columns:
             df_daily.drop(columns=[col], inplace=True)
 
-    # ✅ IMPORTANT: DO NOT .strftime() — keep Booking Date as datetime too
-    df_daily["Booking Date"] = pd.to_datetime(df_daily["Booking Date"], errors="coerce")
-
-    # Keep desired columns if they exist
+    # Keep desired columns in order
     desired_cols = [
         "Reservation Number",
         "Apartment",
         "Guest Name",
         "Sub Channel",
-        "Stay Date",
-        "Booking Date",
+        "Date",          # Excel serial stay date
+        "Booking Date",  # Excel serial booking date
         "Nights",
         "Base Revenue per Night",
         "Total Revenue per Night",
@@ -116,18 +130,18 @@ def split_reservations(df: pd.DataFrame) -> pd.DataFrame:
         "Cleaning Fees per Night",
     ]
     desired_cols = [c for c in desired_cols if c in df_daily.columns]
-    df_daily = df_daily[desired_cols]
-
-    return df_daily
+    return df_daily[desired_cols]
 
 
 # ---------------- STREAMLIT APP ----------------
+
 st.title("Reservation Daily Split Tool")
 
 st.write(
     "Upload a reservations Excel file (.xlsx) and this tool will:\n"
     "- Split each booking into daily rows (1 row per night)\n"
     "- Split all revenue/fee columns evenly across nights\n"
+    "- Convert Date + Booking Date into Excel date values (DATEVALUE style)\n"
     "- Return an Excel file with two sheets: Original Data + Reservations Daily Split."
 )
 
@@ -147,22 +161,9 @@ if uploaded_file is not None:
         st.dataframe(df_output.head(20), use_container_width=True)
 
         buffer = BytesIO()
-
-        # ✅ This makes Excel store as date format (not text)
-        with pd.ExcelWriter(
-            buffer,
-            engine="openpyxl",
-            datetime_format="DD-MM-YYYY",
-            date_format="DD-MM-YYYY",
-        ) as writer:
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             df_original = df_input.copy()
             df_original.columns = df_original.columns.str.strip()
-
-            # Keep original dates as datetime too (not strings)
-            for col in ["Arrival", "Departure", "Booking Date"]:
-                if col in df_original.columns:
-                    df_original[col] = pd.to_datetime(df_original[col], dayfirst=True, errors="coerce")
-
             df_original.to_excel(writer, sheet_name="Original Data", index=False)
             df_output.to_excel(writer, sheet_name="Reservations Daily Split", index=False)
 
