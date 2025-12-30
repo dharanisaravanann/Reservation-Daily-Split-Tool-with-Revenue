@@ -21,11 +21,10 @@ def split_reservations(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
-    # Convert date columns
+    # Convert date columns (these become real datetime dtype)
     df["Arrival"] = pd.to_datetime(df["Arrival"], dayfirst=True, errors="coerce")
     df["Departure"] = pd.to_datetime(df["Departure"], dayfirst=True, errors="coerce")
     df["Booking Date"] = pd.to_datetime(df["Booking Date"], dayfirst=True, errors="coerce")
-
 
     # Create stay dates list (Arrival to day before Departure)
     df["Stay_dates"] = [
@@ -39,12 +38,9 @@ def split_reservations(df: pd.DataFrame) -> pd.DataFrame:
     df_daily = df.explode("Stay_dates").reset_index(drop=True)
     df_daily = df_daily[df_daily["Stay_dates"].notna()].copy()
 
-    # Make Date column
-    df_daily["Date"] = pd.to_datetime(df_daily["Stay_dates"], errors="coerce")
+    # Make Stay Date column (keep as datetime!)
+    df_daily["Stay Date"] = pd.to_datetime(df_daily["Stay_dates"], errors="coerce")
     df_daily.drop(columns=["Stay_dates"], inplace=True)
-
-    df_daily = df_daily.rename(columns={"Date": "Stay Date"})
-
 
     # Total nights per reservation
     total_nights = df_daily.groupby("Reservation Number")["Stay Date"].transform("size")
@@ -96,9 +92,8 @@ def split_reservations(df: pd.DataFrame) -> pd.DataFrame:
         if col in df_daily.columns:
             df_daily.drop(columns=[col], inplace=True)
 
-    # Format dates for Excel output
-    df_daily["Stay Date"] = df_daily["Stay Date"].dt.strftime("%d-%m-%Y")
-    df_daily["Booking Date"] = df_daily["Booking Date"].dt.strftime("%d-%m-%Y")
+    # ✅ IMPORTANT: DO NOT .strftime() — keep Booking Date as datetime too
+    df_daily["Booking Date"] = pd.to_datetime(df_daily["Booking Date"], errors="coerce")
 
     # Keep desired columns if they exist
     desired_cols = [
@@ -152,14 +147,21 @@ if uploaded_file is not None:
         st.dataframe(df_output.head(20), use_container_width=True)
 
         buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            df_original = df_input.copy()
 
+        # ✅ This makes Excel store as date format (not text)
+        with pd.ExcelWriter(
+            buffer,
+            engine="openpyxl",
+            datetime_format="DD-MM-YYYY",
+            date_format="DD-MM-YYYY",
+        ) as writer:
+            df_original = df_input.copy()
+            df_original.columns = df_original.columns.str.strip()
+
+            # Keep original dates as datetime too (not strings)
             for col in ["Arrival", "Departure", "Booking Date"]:
                 if col in df_original.columns:
-                    df_original[col] = pd.to_datetime(
-                        df_original[col], dayfirst=True, errors="coerce"
-                    ).dt.strftime("%d-%m-%Y")
+                    df_original[col] = pd.to_datetime(df_original[col], dayfirst=True, errors="coerce")
 
             df_original.to_excel(writer, sheet_name="Original Data", index=False)
             df_output.to_excel(writer, sheet_name="Reservations Daily Split", index=False)
