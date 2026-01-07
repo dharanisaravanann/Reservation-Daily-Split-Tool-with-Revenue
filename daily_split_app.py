@@ -3,6 +3,26 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
+TEMPLATE_COLUMNS = [
+    "Reservation Number",
+    "Apartment",
+    "Guest Name",
+    "Channel",
+    "Arrival",
+    "Departure",
+    "Booking Date",
+    "Base Revenue",
+    "Total Revenue",
+    "Room Revenue",
+    "SC on Room Revenue",
+    "VAT on Room Rev",
+    "VAT on SC",
+    "Cleaning Fees Without VAT",
+    "VAT on Cleaning Fees",
+    "Tourism Dirham Fees",
+    "Cleaning Fees",
+]
+
 st.write("RUNNING FILE:", os.path.abspath(__file__))
 
 
@@ -22,7 +42,6 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
-
     # Convert key date columns to datetime
     df["Arrival"] = pd.to_datetime(df["Arrival"], dayfirst=True, errors="coerce")
     df["Departure"] = pd.to_datetime(df["Departure"], dayfirst=True, errors="coerce")
@@ -128,17 +147,43 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
     desired_cols = [c for c in desired_cols if c in df_daily.columns]
     return df_daily[desired_cols]
 
+def build_template_excel() -> BytesIO:
+    template_df = pd.DataFrame(columns=TEMPLATE_COLUMNS)
+
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        template_df.to_excel(writer, sheet_name="Template", index=False)
+
+    buffer.seek(0)
+    return buffer
 
 # ---------------- STREAMLIT APP ----------------
 
-st.title("Reservation Daily Split Tool (DATEVALUE)")
-
+st.title("Reservation Daily Split Tool with Revenue(DATEVALUE)")
 st.write(
     "Upload a reservations Excel file (.xlsx) and this tool will:\n"
-    "- Create **1 row per night**\n"
-    "- Convert **Date** (night date) and **Booking Date** to **Excel DATEVALUE serial numbers**\n"
+    "- Creates **1 row per night**\n"
+    "- Converts **Date** (night date) and **Booking Date** to **Excel DATEVALUE serial numbers**\n"
     "- Divide **all revenue/fee columns** evenly across nights\n"
     "- Return an Excel file with two sheets: **Original Data** + **Reservations Daily Split**"
+    "- **Free Excel Template to paste data in correct format**"
+)
+
+
+st.subheader("Step 0 — Download the upload template")
+
+st.write(
+    "If your column names are different, download this template, "
+    "paste your data under the headers, then upload it."
+)
+
+template_buffer = build_template_excel()
+
+st.download_button(
+    label="📥 Download Excel Template",
+    data=template_buffer,
+    file_name="reservations_template.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
 
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
