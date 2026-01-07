@@ -170,7 +170,7 @@ st.write(
 )
 
 
-st.subheader("Step 0 — Download the free excel template")
+st.subheader("Step 0 — Download the Free Excel Template")
 
 st.write(
     "If your column names are different, download this template, "
