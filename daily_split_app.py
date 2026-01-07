@@ -96,7 +96,7 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
     "Tourism Dirham Fees": "Tourism Dirham Fees per Night",
     "Cleaning Fees": "Cleaning Fees per Night",
 }
-df_daily = df_daily.rename(columns=rename_map)
+    df_daily = df_daily.rename(columns=rename_map)
 
     # drop Arrival/Departure from the nightly output
     for col in ["Arrival", "Departure"]:
