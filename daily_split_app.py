@@ -121,7 +121,7 @@ df_daily = df_daily.rename(columns=rename_map)
     "Cleaning Fees (Excl VAT) per Night",
     "VAT on Cleaning Fees per Night",
     "Tourism Dirham Fees per Night",
-    "Cleaning Fees per Night",
+    "Cleaning Fees per Night"
     ] + [c for c in money_cols if c in df_daily.columns]
 
     # Keep only columns that exist
