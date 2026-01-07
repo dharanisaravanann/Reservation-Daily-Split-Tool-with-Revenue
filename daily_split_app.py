@@ -62,16 +62,16 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
 
     # All revenue/fee columns to split per night
     money_cols = [
-        "Base Revenue Per Night",
-        "Total Revenue Per Night",
-        "Room Revenue Per Night",
-        "SC on Room Revenue Per Night",
-        "VAT on Room Rev Per Night",
+        "Base Revenue",
+        "Total Revenue",
+        "Room Revenue",
+        "SC on Room Revenue",
+        "VAT on Room Rev",
         "VAT on SC Per Night",
-        "Cleaning Fees Without VAT Per Night",
-        "VAT on Cleaning Fees Per Night",
-        "Tourism Dirham Fees Per Night",
-        "Cleaning Fees Per Night",
+        "Cleaning Fees Without VAT",
+        "VAT on Cleaning Fees",
+        "Tourism Dirham Fees ",
+        "Cleaning Fees",
     ]
 
     # Convert to numeric + split per night
@@ -84,20 +84,44 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
     if "Channel" in df_daily.columns:
         df_daily = df_daily.rename(columns={"Channel": "Sub Channel"})
 
-    # Optional: drop Arrival/Departure from the nightly output
+    rename_map = {
+    "Base Revenue": "Base Revenue per Night",
+    "Total Revenue": "Total Revenue per Night",
+    "Room Revenue": "Room Revenue per Night",
+    "SC on Room Revenue": "Service Charge per Night",
+    "VAT on Room Rev": "VAT on Room Revenue per Night",
+    "VAT on SC": "VAT on Service Charge per Night",
+    "Cleaning Fees Without VAT": "Cleaning Fees (Excl VAT) per Night",
+    "VAT on Cleaning Fees": "VAT on Cleaning Fees per Night",
+    "Tourism Dirham Fees": "Tourism Dirham Fees per Night",
+    "Cleaning Fees": "Cleaning Fees per Night",
+}
+df_daily = df_daily.rename(columns=rename_map)
+
+    # drop Arrival/Departure from the nightly output
     for col in ["Arrival", "Departure"]:
         if col in df_daily.columns:
             df_daily.drop(columns=[col], inplace=True)
 
     # Output column order
     desired_cols = [
-        "Reservation Number",
-        "Apartment",
-        "Guest Name",
-        "Sub Channel",
-        "Date",         
-        "Booking Date", 
-        "Nights",
+    "Reservation Number",
+    "Apartment",
+    "Guest Name",
+    "Sub Channel",
+    "Date",          
+    "Booking Date",  
+    "Nights",
+    "Base Revenue per Night",
+    "Total Revenue per Night",
+    "Room Revenue per Night",
+    "Service Charge per Night",
+    "VAT on Room Revenue per Night",
+    "VAT on Service Charge per Night",
+    "Cleaning Fees (Excl VAT) per Night",
+    "VAT on Cleaning Fees per Night",
+    "Tourism Dirham Fees per Night",
+    "Cleaning Fees per Night",
     ] + [c for c in money_cols if c in df_daily.columns]
 
     # Keep only columns that exist
