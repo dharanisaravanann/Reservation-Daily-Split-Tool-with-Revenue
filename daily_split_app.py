@@ -186,7 +186,7 @@ st.download_button(
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
 
-st.subheader("Step 1 — Upload your excel file (.xlsx")
+st.subheader("Step 1 — Upload your excel file (.xlsx)")
 
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
