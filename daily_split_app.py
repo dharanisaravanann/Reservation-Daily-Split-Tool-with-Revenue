@@ -89,7 +89,7 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
         "Tourism Dirham Fees",
         "Cleaning Fees",
     ]
-        for col in money_cols:
+    for col in money_cols:
         if col in df_daily.columns:
             df_daily[col] = pd.to_numeric(df_daily[col], errors="coerce").fillna(0)
             df_daily[col] = (df_daily[col] / total_nights).round(2)
