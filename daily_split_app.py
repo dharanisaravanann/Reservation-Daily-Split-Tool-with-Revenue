@@ -177,5 +177,3 @@ if uploaded_file is not None:
         st.error(f"Something went wrong: {e}")
 else:
     st.info("Please upload an Excel file to begin.")
-
-
