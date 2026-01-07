@@ -86,9 +86,14 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
         "VAT on SC Per Night",
         "Cleaning Fees Without VAT",
         "VAT on Cleaning Fees",
-        "Tourism Dirham Fees ",
+        "Tourism Dirham Fees",
         "Cleaning Fees",
     ]
+    for col in money_cols:
+    if col in df_daily.columns:
+        df_daily[col] = pd.to_numeric(df_daily[col], errors="coerce").fillna(0)
+        df_daily[col] = (df_daily[col] / total_nights).round(2)
+
 
     # Convert to numeric + split per night
     for col in money_cols:
