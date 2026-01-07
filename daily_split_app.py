@@ -34,32 +34,36 @@ def build_template_excel() -> BytesIO:
 def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
     """
     1 row per night.
-    Splits all revenue/fee columns evenly across nights by dividing by total nights.
-    Outputs:
-      - Date = Excel DATEVALUE serial number for each night
-      - Booking Date = Excel DATEVALUE serial number
+    Splits all revenue/fee columns evenly across nights by dividing by total nights (per ORIGINAL row).
+    Also keeps sums consistent after rounding by pushing rounding remainder to the last night.
     """
     df = df.copy()
 
-    # Clean column names (strip + fix weird spacing)
+    # Clean column names
     df.columns = (
         df.columns.astype(str)
         .str.replace(r"\s+", " ", regex=True)
         .str.strip()
     )
 
-    # Required columns
     required = ["Reservation Number", "Arrival", "Departure", "Booking Date"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
-    # Convert date columns to datetime
+    # Convert date columns
     df["Arrival"] = pd.to_datetime(df["Arrival"], dayfirst=True, errors="coerce")
     df["Departure"] = pd.to_datetime(df["Departure"], dayfirst=True, errors="coerce")
     df["Booking Date"] = pd.to_datetime(df["Booking Date"], dayfirst=True, errors="coerce")
 
-    # Build nightly date ranges: Arrival -> day before Departure
+    # Unique id per input row (critical fix)
+    df["_line_id"] = range(len(df))
+
+    # Nights per original row
+    df["_total_nights"] = (df["Departure"] - df["Arrival"]).dt.days
+    df["_total_nights"] = df["_total_nights"].fillna(0).astype(int)
+
+    # Build nightly ranges: Arrival -> day before Departure
     df["Stay_dates"] = [
         pd.date_range(start, end - pd.Timedelta(days=1), freq="D")
         if pd.notna(start) and pd.notna(end) and end > start
@@ -67,31 +71,25 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
         for start, end in zip(df["Arrival"], df["Departure"])
     ]
 
-    # Explode: one row per night
+    # Explode
     df_daily = df.explode("Stay_dates").reset_index(drop=True)
     df_daily = df_daily[df_daily["Stay_dates"].notna()].copy()
 
-    # Excel epoch (DATEVALUE base)
+    # Excel epoch
     EXCEL_EPOCH = pd.Timestamp("1899-12-30")
 
-    # Date (night date) as Excel serial number
+    # Night Date as Excel serial
     stay_dt = pd.to_datetime(df_daily["Stay_dates"], errors="coerce")
     df_daily["Date"] = (stay_dt - EXCEL_EPOCH).dt.days
 
-    # Booking Date as Excel serial number too
+    # Booking Date as Excel serial
     booking_dt = pd.to_datetime(df_daily["Booking Date"], errors="coerce")
     df_daily["Booking Date"] = (booking_dt - EXCEL_EPOCH).dt.days
 
-    # Drop helper column
-    df_daily.drop(columns=["Stay_dates"], inplace=True)
-
-    # Total nights per reservation
-    total_nights = df_daily.groupby("Reservation Number")["Date"].transform("size")
-
-    # Each row = 1 night
+    # 1 row = 1 night
     df_daily["Nights"] = 1
 
-    # ✅ Use RAW column names only (no "per night" here)
+    # Money columns (raw names BEFORE renaming)
     money_cols = [
         "Base Revenue",
         "Total Revenue",
@@ -105,18 +103,49 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
         "Cleaning Fees",
     ]
 
-    # ✅ Split values per night ONCE only
+    # Convert money to numeric
     for col in money_cols:
         if col in df_daily.columns:
-            # Handles blanks + numeric conversion
-            df_daily[col] = pd.to_numeric(df_daily[col], errors="coerce").fillna(0)
-            df_daily[col] = (df_daily[col] / total_nights).round(2)
+            df_daily[col] = pd.to_numeric(df_daily[col], errors="coerce").fillna(0.0)
+
+    # Divide by nights per ORIGINAL row (critical fix)
+    # Avoid divide-by-zero: if _total_nights is 0 (bad dates), keep 0
+    denom = df_daily["_total_nights"].replace(0, pd.NA)
+
+    for col in money_cols:
+        if col in df_daily.columns:
+            df_daily[col] = (df_daily[col] / denom).fillna(0.0)
+
+    # OPTIONAL (recommended): make sums match exactly to 2dp after rounding
+    # We round per-night values to 2dp, then push rounding remainder to the last night of each _line_id
+    def _fix_rounding(group: pd.DataFrame) -> pd.DataFrame:
+        # identify last night row in this line
+        last_idx = group.index.max()
+
+        for col in money_cols:
+            if col not in group.columns:
+                continue
+
+            original_total = group[col].sum()  # this is already "distributed" total, equals original money for the line
+            rounded = group[col].round(2)
+            diff = (original_total - rounded.sum()).round(2)
+
+            group[col] = rounded
+            if pd.notna(diff) and diff != 0:
+                group.loc[last_idx, col] = (group.loc[last_idx, col] + diff).round(2)
+
+        return group
+
+    df_daily = df_daily.groupby("_line_id", group_keys=False).apply(_fix_rounding)
+
+    # Drop helper column
+    df_daily.drop(columns=["Stay_dates"], inplace=True)
 
     # Rename Channel -> Sub Channel
     if "Channel" in df_daily.columns:
         df_daily = df_daily.rename(columns={"Channel": "Sub Channel"})
 
-    # Rename columns AFTER splitting (display names)
+    # Rename AFTER splitting
     rename_map = {
         "Base Revenue": "Base Revenue per Night",
         "Total Revenue": "Total Revenue per Night",
@@ -136,7 +165,7 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
         if col in df_daily.columns:
             df_daily.drop(columns=[col], inplace=True)
 
-    # Output column order (NO appending raw money_cols)
+    # Output order
     desired_cols = [
         "Reservation Number",
         "Apartment",
@@ -156,8 +185,13 @@ def split_reservations_daily(df: pd.DataFrame) -> pd.DataFrame:
         "Tourism Dirham Fees per Night",
         "Cleaning Fees per Night",
     ]
-
     desired_cols = [c for c in desired_cols if c in df_daily.columns]
+
+    # Remove internal helper columns
+    for c in ["_line_id", "_total_nights"]:
+        if c in df_daily.columns:
+            df_daily.drop(columns=[c], inplace=True)
+
     return df_daily[desired_cols]
 
 
